@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Xml;
 
 namespace The_Walrus_Is_Back_to_Pack
 {
@@ -40,6 +41,60 @@ namespace The_Walrus_Is_Back_to_Pack
                 sevenzip.WaitForExit();
             }
             return c_maps;
+        }
+
+        internal static void PackChunk(ref BinaryWriter mr, ref BinaryWriter tr)
+        {
+            throw new NotImplementedException();
+        }
+
+        internal static void UnpackBuffer(string mrg_arc, ref MemoryStream all_maps, XmlNode map_xml)
+        {
+            long partition_offset = Convert.ToInt64(map_xml.Attributes["offset"].Value);
+            int partition_length = Convert.ToInt32(map_xml.Attributes["c_length"].Value);
+            int partition_ulength = Convert.ToInt32(map_xml.Attributes["u_length"].Value);
+
+            using (Process zip = new Process())
+            {
+                zip.StartInfo.FileName = "7z.exe";
+                zip.StartInfo.Arguments = string.Format("e -txz -si -so", mrg_arc);
+                zip.StartInfo.RedirectStandardInput = true;
+                zip.StartInfo.RedirectStandardOutput = true;
+                zip.StartInfo.CreateNoWindow = true;
+                zip.StartInfo.UseShellExecute = false;
+
+                zip.Start();
+
+                using (BinaryReader br = new BinaryReader(new FileStream(mrg_arc, FileMode.Open)))
+                {
+                    br.BaseStream.Seek(partition_offset, SeekOrigin.Begin);
+                    //br.BaseStream.CopyTo(zip.StandardInput.BaseStream);
+
+                    using (BinaryWriter stdinw = new BinaryWriter(zip.StandardInput.BaseStream))
+                    {
+                        stdinw.Write(br.ReadBytes(partition_length));
+                    }
+                }
+                //zip.StandardInput.Close();
+
+                using (BinaryReader bo = new BinaryReader(zip.StandardOutput.BaseStream))
+                {
+                    //byte[] _buffer2;
+                    //using (BinaryWriter filer = new BinaryWriter(data_buffer))
+                    //{
+
+                    //do
+                    //{
+                    byte[] _buffer2 = bo.ReadBytes(partition_ulength);
+                    //filer.Write(_buffer2);
+                    all_maps.Write(_buffer2, 0, partition_ulength);
+                    //}
+                    //while (_buffer2.Length == 1024 * 1024 * 64);
+                    //}
+                }
+
+                zip.WaitForExit();
+            }
         }
     }
 }
