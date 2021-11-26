@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Text;
+using System.Linq;
 
 namespace The_Walrus_Is_Back_to_Pack
 {
@@ -13,19 +14,39 @@ namespace The_Walrus_Is_Back_to_Pack
             {
                 if (br.BaseStream.Length > 32768)
                 {
-                    br.BaseStream.Seek(32769, SeekOrigin.Begin);
-                    string mwiso = Encoding.ASCII.GetString(br.ReadBytes(5));
-                    if (mwiso == "CD001")
+                    //3DO ISO
+                    br.BaseStream.Seek(0, SeekOrigin.Begin);
+                    byte[] _3doiso = br.ReadBytes(7);
+                    if (_3doiso.SequenceEqual(new byte[] { 0x01, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A, 0x01 }))
                     {
                         return "iso";
                     }
 
-                    br.BaseStream.Seek(37657, SeekOrigin.Begin);
-                    string mwbin = Encoding.ASCII.GetString(br.ReadBytes(5));
-
-                    if (mwbin == "CD001")
+                    //3DO RAW
+                    br.BaseStream.Seek(16, SeekOrigin.Begin);
+                    byte[] _3doraw = br.ReadBytes(7);
+                    if (_3doraw.SequenceEqual(new byte[] { 0x01, 0x5A, 0x5A, 0x5A, 0x5A, 0x5A, 0x01 }))
                     {
-                        return "bin";
+                        return "raw";
+                    }
+
+                    //PS2 PSP ISO
+                    br.BaseStream.Seek(32769, SeekOrigin.Begin);
+                    string _iso = Encoding.ASCII.GetString(br.ReadBytes(5));
+                    if (_iso == "CD001")
+                    {
+                        return "iso";
+                    }
+
+                    //PLAYSTATION
+
+                    //PS2 RAW
+                    br.BaseStream.Seek(37657, SeekOrigin.Begin);
+                    string _raw = Encoding.ASCII.GetString(br.ReadBytes(5));
+
+                    if (_raw == "CD001")
+                    {
+                        return "raw";
                     }
                 }
             }

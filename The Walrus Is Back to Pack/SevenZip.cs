@@ -12,7 +12,7 @@ namespace The_Walrus_Is_Back_to_Pack
             MemoryStream c_maps = new MemoryStream();
             using (Process sevenzip = new Process())
             {
-                sevenzip.StartInfo.FileName = "7z.exe";
+                sevenzip.StartInfo.FileName = "7z";
                 sevenzip.StartInfo.Arguments = "a -txz -mx9 -an -si -so";
                 sevenzip.StartInfo.RedirectStandardInput = true;
                 sevenzip.StartInfo.RedirectStandardOutput = true;
@@ -56,7 +56,7 @@ namespace The_Walrus_Is_Back_to_Pack
 
             using (Process zip = new Process())
             {
-                zip.StartInfo.FileName = "7z.exe";
+                zip.StartInfo.FileName = "7z";
                 zip.StartInfo.Arguments = string.Format("e -txz -si -so", mrg_arc);
                 zip.StartInfo.RedirectStandardInput = true;
                 zip.StartInfo.RedirectStandardOutput = true;

@@ -13,6 +13,11 @@ namespace The_Walrus_Is_Back_to_Pack
 {
     internal class Merger
     {
+        internal static uint[] edc_lut = new uint[256];
+        internal static byte[] ecc_f_lut = new byte[256];
+        internal static byte[] ecc_b_lut = new byte[256];
+
+
         internal static void Pack(string working_dir, Options merge_options)
         {
             List<string> images = new List<string>();
@@ -64,7 +69,7 @@ namespace The_Walrus_Is_Back_to_Pack
                     case "iso":
                         block_size = 2048;
                         break;
-                    case "bin":
+                    case "raw":
                         block_size = 2352;
                         break;
                 }
@@ -91,25 +96,57 @@ namespace The_Walrus_Is_Back_to_Pack
                                 hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 0, 2048));
                                 break;
                             case 2352:
-                                hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 24, 2048));
+                                switch (_temp[15])
+                                {
+                                    case 1:
+                                        hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 16, 2048));
+                                        break;
+                                    case 2:
+                                        hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 24, 2048));
+                                        break;
+                                }
                                 break;
                         }
 
                         if (dupes.ContainsKey(hash))
                         {
+                            switch(block_size)
+                            {
+                                case 2352:
+                                    switch (_temp[15])
+                                    {
+                                        case 1:
+                                            image_map.Write(_temp, 12, 4);
+                                            break;
+                                        case 2:
+                                            break;
+                                    }
+                                    break;
+                            }
                             image_map.Write(dupes[hash]);
                         }
                         else
                         {
                             dupes.Add(hash, counter);
-                            image_map.Write(counter);
+                            
                             switch (block_size)
                             {
                                 case 2048:
                                     mr.Write(_temp, 0, 2048);
+                                    image_map.Write(counter);
                                     break;
                                 case 2352:
-                                    mr.Write(_temp, 24, 2048);
+                                    switch (_temp[15])
+                                    {
+                                        case 1:
+                                            mr.Write(_temp, 16, 2048);
+                                            image_map.Write(_temp, 12, 4);
+                                            image_map.Write(counter);
+                                            break;
+                                        case 2:
+                                            mr.Write(_temp, 24, 2048);
+                                            break;
+                                    }
                                     break;
                             }
                             counter++;
@@ -136,7 +173,7 @@ namespace The_Walrus_Is_Back_to_Pack
 
                             using (Process sevenzip = new Process())
                             {
-                                sevenzip.StartInfo.FileName = "7z.exe";
+                                sevenzip.StartInfo.FileName = "7z";
                                 sevenzip.StartInfo.Arguments = "a -txz -mx9 -an -si -so"; // -m0=LZMA2:d27 
                                 sevenzip.StartInfo.RedirectStandardInput = true;
                                 sevenzip.StartInfo.RedirectStandardOutput = true;
@@ -175,6 +212,8 @@ namespace The_Walrus_Is_Back_to_Pack
                 XmlElement image_xml = main_spec.CreateElement("entry");
                 files_xml.AppendChild(image_xml);
                 image_xml.SetAttribute("type", "file");
+                //image_type
+                image_xml.SetAttribute("mode", image_type);
                 image_xml.SetAttribute("name", Path.GetFileName(images[image]));
                 image_xml.SetAttribute("map_offset", all_maps.Position.ToString());
                 image_xml.SetAttribute("map_length", image_map.BaseStream.Length.ToString());
@@ -218,6 +257,8 @@ namespace The_Walrus_Is_Back_to_Pack
                 string magic_word = Encoding.ASCII.GetString(br.ReadBytes(4));
                 if (magic_word != "MRG1") return;
             }
+
+            FillEDCECCLuts();
 
             XmlDocument xml = new XmlDocument();
             xml.LoadXml(GetMainXml(mrg_arc));
@@ -286,22 +327,56 @@ namespace The_Walrus_Is_Back_to_Pack
 
                             long map_offset = long.Parse(file.Attributes["map_offset"].Value);
                             int map_length = int.Parse(file.Attributes["map_length"].Value);
+                            string mode = file.Attributes["mode"].Value;
+
                             mapr.BaseStream.Seek(map_offset, SeekOrigin.Begin);
 
                             long position = 0;
-                            while (mapr.BaseStream.Position != map_offset + map_length)
+                            switch (mode)
                             {
-                                scenario _chain = new scenario();
-                                _chain.data_offset = (ulong)(position++ * 2048);
+                                case "iso":
 
-                                long offset = mapr.ReadUInt32() * 2048;
+                                    while (mapr.BaseStream.Position != map_offset + map_length)
+                                    {
+                                        scenario _chain = new scenario();
 
-                                _chain.partition = (uint)(offset / buffer_length);
-                                _chain.partititon_offset = (uint)(offset % buffer_length);
+                                        _chain.data_offset = (ulong)(position++ * 2048);
+                                        //_chain.msfmode = mapr.ReadBytes(4);
 
-                                chain.Add(_chain);
+                                        //switch (_chain.msfmode[3])
+                                        //{
+                                          //  case 1:
+                                                long offset = mapr.ReadUInt32() * 2048;
+
+                                                _chain.partition = (uint)(offset / buffer_length);
+                                                _chain.partititon_offset = (uint)(offset % buffer_length);
+                                            //    break;
+                                        //}
+                                        chain.Add(_chain);
+                                    }
+                                    break;
+                                case "raw":
+                                    
+                                    while (mapr.BaseStream.Position != map_offset + map_length)
+                                    {
+                                        scenario _chain = new scenario();
+
+                                        _chain.data_offset = (ulong)(position++ * 2352);
+                                        _chain.msfmode = mapr.ReadBytes(4);
+
+                                        switch (_chain.msfmode[3])
+                                        {
+                                            case 1:
+                                                long offset = mapr.ReadUInt32() * 2048;
+
+                                                _chain.partition = (uint)(offset / buffer_length);
+                                                _chain.partititon_offset = (uint)(offset % buffer_length);
+                                                break;
+                                        }
+                                        chain.Add(_chain);
+                                    }
+                                    break;
                             }
-
                             scenario[] chain_sorted = chain.OrderBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
                             int current_partition = 0;
                             for (int i = 0; i < chain_sorted.Length; i++)
@@ -314,10 +389,27 @@ namespace The_Walrus_Is_Back_to_Pack
                                 }
 
                                 data_buffer.Seek(chain_sorted[i].partititon_offset, SeekOrigin.Begin);
-                                byte[] out_buffer = new byte[2048];
-                                data_buffer.Read(out_buffer, 0, 2048);
-                                dataout.BaseStream.Seek((long)chain_sorted[i].data_offset, SeekOrigin.Begin);
-                                dataout.Write(out_buffer);
+
+                                switch (mode)
+                                {
+                                    case "iso":
+                                        byte[] iso_out_buffer = new byte[2048];
+                                        data_buffer.Read(iso_out_buffer, 0, 2048);
+                                        dataout.BaseStream.Seek((long)chain_sorted[i].data_offset, SeekOrigin.Begin);
+                                        dataout.Write(iso_out_buffer);
+                                        break;
+                                    case "raw":
+                                        byte[] raw_out_buffer = new byte[2352];
+                                        new byte[] { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }.CopyTo(raw_out_buffer, 1);
+                                        chain_sorted[i].msfmode.CopyTo(raw_out_buffer, 12);
+                                        data_buffer.Read(raw_out_buffer, 16, 2048);
+                                        CalculateEDC(ref raw_out_buffer, 0, 2064);
+                                        CalculateECCP(ref raw_out_buffer);
+                                        CalculateECCQ(ref raw_out_buffer);
+                                        dataout.BaseStream.Seek((long)chain_sorted[i].data_offset, SeekOrigin.Begin);
+                                        dataout.Write(raw_out_buffer);
+                                        break;
+                                }
                             }
 
                             Console.WriteLine(string.Format("{0}", DateTime.Now - start_time));
@@ -325,6 +417,97 @@ namespace The_Walrus_Is_Back_to_Pack
                     }
                 }
             }
+        }
+
+        private static void CalculateECCQ(ref byte[] raw_out_buffer)
+        {
+            UInt32 major_count, minor_count, major_mult, minor_inc;
+            major_count = 52;
+            minor_count = 43;
+            major_mult = 86;
+            minor_inc = 88;
+
+            var eccsize = major_count * minor_count;
+            UInt32 major, minor;
+            for (major = 0; major < major_count; major++)
+            {
+                var index = (major >> 1) * major_mult + (major & 1);
+                byte ecc_a = 0;
+                byte ecc_b = 0;
+                for (minor = 0; minor < minor_count; minor++)
+                {
+                    byte temp = raw_out_buffer[12 + index];
+                    index += minor_inc;
+                    if (index >= eccsize) index -= eccsize;
+                    ecc_a ^= temp;
+                    ecc_b ^= temp;
+                    ecc_a = ecc_f_lut[ecc_a];
+                }
+                ecc_a = ecc_b_lut[ecc_f_lut[ecc_a] ^ ecc_b];
+                raw_out_buffer[2076 + 172 + major] = ecc_a;
+                raw_out_buffer[2076 + 172 + major + major_count] = (byte)(ecc_a ^ ecc_b);
+            }
+        }
+
+        private static void CalculateECCP(ref byte[] raw_out_buffer)
+        {
+            UInt32 major_count, minor_count, major_mult, minor_inc;
+            major_count = 86;
+            minor_count = 24;
+            major_mult = 2;
+            minor_inc = 86;
+
+            var eccsize = major_count * minor_count;
+            UInt32 major, minor;
+            for (major = 0; major < major_count; major++)
+            {
+                var index = (major >> 1) * major_mult + (major & 1);
+                byte ecc_a = 0;
+                byte ecc_b = 0;
+                for (minor = 0; minor < minor_count; minor++)
+                {
+                    byte temp = raw_out_buffer[12 + index];
+                    index += minor_inc;
+                    if (index >= eccsize) index -= eccsize;
+                    ecc_a ^= temp;
+                    ecc_b ^= temp;
+                    ecc_a = ecc_f_lut[ecc_a];
+                }
+                ecc_a = ecc_b_lut[ecc_f_lut[ecc_a] ^ ecc_b];
+                raw_out_buffer[2076 + major] = ecc_a;
+                raw_out_buffer[2076 + major + major_count] = (byte)(ecc_a ^ ecc_b);
+            }
+        }
+
+        private static void FillEDCECCLuts()
+        {
+            UInt32 k, l, m;
+
+            for (k = 0; k < 256; k++)
+            {
+                l = (UInt32)((k << 1) ^ ((k & 0x80) != 0 ? 0x11d : 0));
+                ecc_f_lut[k] = (byte)l;
+                ecc_b_lut[k ^ l] = (byte)k;
+                m = k;
+
+                for (l = 0; l < 8; l++)
+                {
+                    m = (m >> 1) ^ ((m & 1) != 0 ? 0xd8018001 : 0);
+                }
+                edc_lut[k] = m;
+            }
+        }
+
+        private static void CalculateEDC(ref byte[] raw_out_buffer, int offset, int length)
+        {
+            UInt32 edc = 0;
+            int i = 0;
+
+            while (i != length)
+            {
+                edc = (UInt32)((edc >> 8) ^ edc_lut[(edc ^ (raw_out_buffer[offset + i++])) & 0xff]);
+            }
+            BitConverter.GetBytes(edc).CopyTo(raw_out_buffer, length);
         }
 
         private static MemoryStream ReadMap(string mrg_arc, XmlDocument xml)
@@ -378,10 +561,12 @@ namespace The_Walrus_Is_Back_to_Pack
         }
     }
 
+
     internal class scenario
     {
         public uint partition;
         public uint partititon_offset;
         public ulong data_offset;
+        internal byte[] msfmode;
     }
 }
