@@ -1,99 +1,121 @@
 ﻿using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading.Tasks;
 using System.Xml;
 
 namespace The_Walrus_Is_Back_to_Pack
 {
     internal class SevenZip
     {
-        internal static MemoryStream CompressStream(ref MemoryStream all_maps)
+        internal static MemoryStream CompressStream(MemoryStream input_stream)
         {
-            MemoryStream c_maps = new MemoryStream();
-            using (Process sevenzip = new Process())
+            MemoryStream output_stream = new MemoryStream();
+            using (Process seven_zip = new Process())
             {
-                sevenzip.StartInfo.FileName = "7z";
-                sevenzip.StartInfo.Arguments = "a -txz -mx9 -an -si -so";
-                sevenzip.StartInfo.RedirectStandardInput = true;
-                sevenzip.StartInfo.RedirectStandardOutput = true;
-                sevenzip.StartInfo.UseShellExecute = false;
-                sevenzip.StartInfo.CreateNoWindow = true;
+                seven_zip.StartInfo.FileName = "7za";
+                seven_zip.StartInfo.Arguments = "a -txz -mx9 -an -si -so";
+                seven_zip.StartInfo.RedirectStandardInput = true;
+                seven_zip.StartInfo.RedirectStandardOutput = true;
+                seven_zip.StartInfo.UseShellExecute = false;
+                seven_zip.StartInfo.CreateNoWindow = true;
 
-                sevenzip.Start();
+                seven_zip.Start();
 
-                all_maps.Position = 0;
-                all_maps.CopyTo(sevenzip.StandardInput.BaseStream);
-                sevenzip.StandardInput.Close();
+                input_stream.Position = 0;
 
-                BinaryReader szr = new BinaryReader(sevenzip.StandardOutput.BaseStream);
-
-                byte[] _tmp7z;
-
-                do
+                Task input_task = Task.Run(() =>
                 {
-                    _tmp7z = szr.ReadBytes(2048);
-                    c_maps.Write(_tmp7z, 0, _tmp7z.Length);
-                }
-                while (_tmp7z.Length == 2048);
+                    input_stream.CopyTo(seven_zip.StandardInput.BaseStream);
+                    seven_zip.StandardInput.Close();
+                });
 
-                c_maps.Position = 0;
+                Task output_task = Task.Run(() =>
+                {
+                    seven_zip.StandardOutput.BaseStream.CopyTo(output_stream);
+                });
 
-                sevenzip.WaitForExit();
+                Task.WaitAll(input_task, output_task);
+
+                seven_zip.WaitForExit();
             }
-            return c_maps;
+            return output_stream;
         }
 
-        internal static void PackChunk(ref BinaryWriter mr, ref BinaryWriter tr)
+        internal static void PackChunk(MemoryStream input_chunk, BinaryWriter output_file)
         {
-            throw new NotImplementedException();
-        }
-
-        internal static void UnpackBuffer(string mrg_arc, ref MemoryStream all_maps, XmlNode map_xml)
-        {
-            long partition_offset = Convert.ToInt64(map_xml.Attributes["offset"].Value);
-            int partition_length = Convert.ToInt32(map_xml.Attributes["c_length"].Value);
-            int partition_ulength = Convert.ToInt32(map_xml.Attributes["u_length"].Value);
-
-            using (Process zip = new Process())
+            using (Process seven_zip = new Process())
             {
-                zip.StartInfo.FileName = "7z";
-                zip.StartInfo.Arguments = string.Format("e -txz -si -so", mrg_arc);
-                zip.StartInfo.RedirectStandardInput = true;
-                zip.StartInfo.RedirectStandardOutput = true;
-                zip.StartInfo.CreateNoWindow = true;
-                zip.StartInfo.UseShellExecute = false;
+                seven_zip.StartInfo.FileName = "7za";
+                seven_zip.StartInfo.Arguments = "a -txz -mx9 -an -si -so"; // -m0=LZMA2:d27 -m0=LZMA2:d=26:fb=273
+                seven_zip.StartInfo.RedirectStandardInput = true;
+                seven_zip.StartInfo.RedirectStandardOutput = true;
+                seven_zip.StartInfo.UseShellExecute = false;
+                seven_zip.StartInfo.CreateNoWindow = true;
 
-                zip.Start();
+                seven_zip.Start();
 
-                using (BinaryReader br = new BinaryReader(new FileStream(mrg_arc, FileMode.Open)))
+                Task input_task = Task.Run(() =>
                 {
-                    br.BaseStream.Seek(partition_offset, SeekOrigin.Begin);
-                    //br.BaseStream.CopyTo(zip.StandardInput.BaseStream);
+                    input_chunk.CopyTo(seven_zip.StandardInput.BaseStream);
+                    seven_zip.StandardInput.Close();
+                });
 
-                    using (BinaryWriter stdinw = new BinaryWriter(zip.StandardInput.BaseStream))
+                Task output_task = Task.Run(() =>
+                {
+                    seven_zip.StandardOutput.BaseStream.CopyTo(output_file.BaseStream);
+                });
+
+                Task.WaitAll(input_task, output_task);
+
+                seven_zip.WaitForExit();
+            }
+        }
+
+        internal static void UnpackBuffer(string input_file, MemoryStream output_stream, XmlNode partition_xml)
+        {
+            long partition_offset = Convert.ToInt64(partition_xml.Attributes["offset"].Value);
+            int partition_length = Convert.ToInt32(partition_xml.Attributes["c_length"].Value);
+            int partition_ulength = Convert.ToInt32(partition_xml.Attributes["u_length"].Value);
+
+            using (Process seven_zip = new Process())
+            {
+                seven_zip.StartInfo.FileName = "7za";
+                seven_zip.StartInfo.Arguments = "e -txz -si -so";
+                seven_zip.StartInfo.RedirectStandardInput = true;
+                seven_zip.StartInfo.RedirectStandardOutput = true;
+                seven_zip.StartInfo.RedirectStandardError = true;
+                seven_zip.StartInfo.CreateNoWindow = true;
+                seven_zip.StartInfo.UseShellExecute = false;
+                //seven_zip.ErrorDataReceived += (sender, EventArgs) =>
+                //{
+                //    Console.WriteLine(EventArgs.Data);
+                //};
+
+                seven_zip.Start();
+                //seven_zip.BeginErrorReadLine();
+
+                Task input_task = Task.Run(() =>
+                {
+                    using (BinaryReader input_file_reader = new BinaryReader(new FileStream(input_file, FileMode.Open)))
                     {
-                        stdinw.Write(br.ReadBytes(partition_length));
+                        input_file_reader.BaseStream.Seek(partition_offset, SeekOrigin.Begin);
+
+                        using (BinaryWriter standard_input_writer = new BinaryWriter(seven_zip.StandardInput.BaseStream))
+                        {
+                            standard_input_writer.Write(input_file_reader.ReadBytes(partition_length));
+                        }
                     }
-                }
-                //zip.StandardInput.Close();
+                });
 
-                using (BinaryReader bo = new BinaryReader(zip.StandardOutput.BaseStream))
+                Task output_task = Task.Run(() =>
                 {
-                    //byte[] _buffer2;
-                    //using (BinaryWriter filer = new BinaryWriter(data_buffer))
-                    //{
+                    seven_zip.StandardOutput.BaseStream.CopyTo(output_stream);
+                });
 
-                    //do
-                    //{
-                    byte[] _buffer2 = bo.ReadBytes(partition_ulength);
-                    //filer.Write(_buffer2);
-                    all_maps.Write(_buffer2, 0, partition_ulength);
-                    //}
-                    //while (_buffer2.Length == 1024 * 1024 * 64);
-                    //}
-                }
+                Task.WaitAll(input_task, output_task);
 
-                zip.WaitForExit();
+                seven_zip.WaitForExit();
             }
         }
     }

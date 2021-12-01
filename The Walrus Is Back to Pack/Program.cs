@@ -48,6 +48,7 @@ namespace The_Walrus_Is_Back_to_Pack
     {
         internal bool verbose;
         internal bool xml;
+        internal int volume;
 
         public Options(string[] options)
         {

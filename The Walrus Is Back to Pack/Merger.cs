@@ -40,9 +40,18 @@ namespace The_Walrus_Is_Back_to_Pack
             //BinaryWriter mr = new BinaryWriter(_buffer);
             MemoryStream mr = new MemoryStream();
 
+            string form2_name = new DirectoryInfo(working_dir).Name + ".form2";
+            MemoryStream form2 = new MemoryStream();
+            BinaryWriter form2r = new BinaryWriter(new FileStream(form2_name, FileMode.Create));
+            List<Form2Info> form2s = new List<Form2Info>();
 
             MemoryStream all_maps = new MemoryStream();
             XmlElement map_partition_xml = main_spec.CreateElement("partition");
+
+            merge_options.volume = 64;
+
+            int buffer_form1_size = merge_options.volume * 1048576;
+            int buffer_form2_size = merge_options.volume * 1189888;
 
             if (merge_options.verbose)
             {
@@ -50,6 +59,8 @@ namespace The_Walrus_Is_Back_to_Pack
             }
 
             int counter = 0;
+            int counter_form2 = 0;
+
             int chunk_n = 0;
             DateTime job_time = DateTime.Now;
 
@@ -82,9 +93,9 @@ namespace The_Walrus_Is_Back_to_Pack
 
                     while (br.BaseStream.Position != br.BaseStream.Length)
                     {
-                        if(br.BaseStream.Position == 418138560)
+                        if(br.BaseStream.Position == 28224)
                         {
-                            int ttt = 0;
+                            int h = 0;
                         }
 
                         byte[] _temp = br.ReadBytes(block_size);
@@ -107,7 +118,16 @@ namespace The_Walrus_Is_Back_to_Pack
                                         hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 16, 2048));
                                         break;
                                     case 2:
-                                        hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 24, 2048));
+                                        switch ((_temp[18] & 0x20) == 0x20)
+                                        {
+                                            case false:
+                                                hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 24, 2048));
+                                                break;
+                                            case true:
+                                                hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 24, 2324));
+                                                break;
+                                        }
+
                                         break;
                                 }
                                 break;
@@ -143,6 +163,7 @@ namespace The_Walrus_Is_Back_to_Pack
                                 case 2048:
                                     mr.Write(_temp, 0, 2048);
                                     image_map.Write(counter);
+                                    dupes.Add(hash, counter++);
                                     break;
                                 case 2352:
                                     switch (_temp[15])
@@ -151,21 +172,37 @@ namespace The_Walrus_Is_Back_to_Pack
                                             mr.Write(_temp, 16, 2048);
                                             image_map.Write(_temp, 12, 4);
                                             image_map.Write(counter);
+                                            dupes.Add(hash, counter++);
                                             break;
                                         case 2:
-                                            mr.Write(_temp, 24, 2048);
-                                            image_map.Write(_temp, 12, 4);
-                                            image_map.Write(_temp, 16, 8);
-                                            image_map.Write(counter);
+                                            switch((_temp[18] & 0x20) == 0x20)
+                                            {
+                                                case false:
+                                                    mr.Write(_temp, 24, 2048);
+                                                    image_map.Write(_temp, 12, 4);
+                                                    image_map.Write(_temp, 16, 8);
+                                                    image_map.Write(counter);
+                                                    dupes.Add(hash, counter++);
+                                                    break;
+                                                case true:
+                                                    //form2
+                                                    //null_edc
+                                                    form2.Write(_temp, 24, 2324);
+                                                    image_map.Write(_temp, 12, 4);
+                                                    image_map.Write(_temp, 16, 8);
+                                                    image_map.Write(counter_form2);
+                                                    dupes.Add(hash, counter_form2++);
+                                                    break;
+                                            }
                                             break;
                                     }
                                     break;
                             }
-                            dupes.Add(hash, counter++);
+                            
                             //counter++;
                         }
 
-                        if (mr.Length == 1024 * 1024 * 64 || (br.BaseStream.Position == br.BaseStream.Length && last))
+                        if (mr.Length == buffer_form1_size || (br.BaseStream.Position == br.BaseStream.Length && last))
                         {
                             if (merge_options.verbose) Console.Write("Packing chunk {0}...", chunk_n);
 
@@ -182,40 +219,49 @@ namespace The_Walrus_Is_Back_to_Pack
 
                             mr.Position = 0;
 
-                            //SevenZip.PackChunk(ref mr, ref tr);
-
-                            using (Process sevenzip = new Process())
-                            {
-                                sevenzip.StartInfo.FileName = "7z";
-                                sevenzip.StartInfo.Arguments = "a -txz -mx9 -an -si -so"; // -m0=LZMA2:d27 -m0=LZMA2:d=26:fb=273
-                                sevenzip.StartInfo.RedirectStandardInput = true;
-                                sevenzip.StartInfo.RedirectStandardOutput = true;
-                                sevenzip.StartInfo.UseShellExecute = false;
-                                sevenzip.StartInfo.CreateNoWindow = true;
-
-                                sevenzip.Start();
-
-                                var inputTask = Task.Run(() =>
-                                {
-                                    mr.CopyTo(sevenzip.StandardInput.BaseStream);
-                                    sevenzip.StandardInput.Close();
-                                });
-
-                                var outputTask = Task.Run(() =>
-                                {
-                                    sevenzip.StandardOutput.BaseStream.CopyTo(tr.BaseStream);
-                                });
-
-                                Task.WaitAll(inputTask, outputTask);
-
-                                sevenzip.WaitForExit();
-                            }
+                            SevenZip.PackChunk(mr, tr);
 
                             mr.SetLength(0);
 
                             partition_xml.SetAttribute("c_length", (tr.BaseStream.Position - partition_offset).ToString());
-                            long c_chunk_length = tr.BaseStream.Position - partition_offset;
+                            //long c_chunk_length = tr.BaseStream.Position - partition_offset;
                             if (merge_options.verbose) Console.WriteLine("\rPacked chunk {0} in {1}", chunk_n++, DateTime.Now - chunk_start);
+                        }
+
+                        //form2 buffer
+                        if (form2.Length == buffer_form2_size || (br.BaseStream.Position == br.BaseStream.Length && last && form2.Length != 0))
+                        {
+                            //if (form2.Length != 0)
+                            {
+                                Form2Info form2Info = new Form2Info();
+
+                                //if (merge_options.verbose) Console.Write("Packing chunk {0}...", chunk_n);
+
+                                //DateTime chunk_start = DateTime.Now;
+                                form2Info.chunk_length = form2.Length;
+                                form2Info.offset = form2r.BaseStream.Position;
+                                form2Info.length = form2.Position;
+                                //long chunk_length = form2.Length;
+
+                                //XmlElement partition_xml = main_spec.CreateElement("partition");
+                                //partitions_xml.AppendChild(partition_xml);
+                                //partition_xml.SetAttribute("type", "form2");
+                                //partition_xml.SetAttribute("offset", form2r.BaseStream.Position.ToString());
+                                //partition_xml.SetAttribute("u_length", form2.Position.ToString());
+
+                                long partition_offset = form2r.BaseStream.Position;
+
+                                form2.Position = 0;
+                                SevenZip.PackChunk(form2, form2r);
+                                form2.SetLength(0);
+
+                                form2Info.c_length = form2r.BaseStream.Position - partition_offset;
+
+                                form2s.Add(form2Info);
+                                //partition_xml.SetAttribute("c_length", (form2r.BaseStream.Position - partition_offset).ToString());
+                                //long c_chunk_length = form2r.BaseStream.Position - partition_offset;
+                                //if (merge_options.verbose) Console.WriteLine("\rPacked chunk {0} in {1}", chunk_n++, DateTime.Now - chunk_start);
+                            }
                         }
                     }
 
@@ -237,15 +283,39 @@ namespace The_Walrus_Is_Back_to_Pack
             }
 
             //test map
-            all_maps.Position = 0;
-            File.WriteAllBytes("test.map", all_maps.ToArray());
+            //all_maps.Position = 0;
+            //File.WriteAllBytes("test.map", all_maps.ToArray());
+            //form2.Position = 0;
+            //File.WriteAllBytes("test.form2", form2.ToArray());
+            if (form2s.Count != 0)
+            {
+                for (int i = 0; i < form2s.Count; i++)
+                {
+                    XmlElement partition_xml = main_spec.CreateElement("partition");
+                    partitions_xml.AppendChild(partition_xml);
+                    partition_xml.SetAttribute("type", "form2");
+                    partition_xml.SetAttribute("offset", (form2s[i].offset + tr.BaseStream.Position).ToString());
+                    partition_xml.SetAttribute("u_length", form2s[i].length.ToString());
+                    partition_xml.SetAttribute("c_length", form2s[i].c_length.ToString());
+                    //}
 
-            MemoryStream c_all_maps = SevenZip.CompressStream(ref all_maps);
+                    //if (form2r.BaseStream.Length != 0)
+                    //{
+                }
+                form2r.BaseStream.Position = 0;
+                form2r.BaseStream.CopyTo(tr.BaseStream);
+                
+            }
+            form2r.Close();
+            File.Delete(form2_name);
+
+            MemoryStream c_all_maps = SevenZip.CompressStream(all_maps);
             map_partition_xml.SetAttribute("type", "map");
             map_partition_xml.SetAttribute("offset", tr.BaseStream.Position.ToString());
             map_partition_xml.SetAttribute("c_length", c_all_maps.Length.ToString());
             map_partition_xml.SetAttribute("u_length", all_maps.Length.ToString());
             partitions_xml.AppendChild(map_partition_xml);
+            c_all_maps.Position = 0;
             c_all_maps.CopyTo(tr.BaseStream);
 
 
@@ -262,6 +332,7 @@ namespace The_Walrus_Is_Back_to_Pack
             tr.Write(md5_xml);
             tr.Close();
 
+            merge_options.xml = true;
             if (merge_options.xml) main_spec.Save(string.Format("{0}.xml", Path.GetFileName(working_dir)));
 
             if (merge_options.verbose) Console.WriteLine(string.Format("Job completed in {0}", DateTime.Now - job_time));
@@ -323,7 +394,10 @@ namespace The_Walrus_Is_Back_to_Pack
                     }
                 }
 
-                XmlNodeList partitions = xml.DocumentElement.GetElementsByTagName("partition");
+                //XmlNodeList partitions = xml.DocumentElement.GetElementsByTagName("partition");
+                XmlNodeList partitions = xml.DocumentElement.SelectNodes("partitions/partition[@type='form1']");
+                XmlNodeList partitions_form2 = xml.DocumentElement.SelectNodes("partitions/partition[@type='form2']");
+
                 MemoryStream all_maps = ReadMap(mrg_arc, xml);
                 using (BinaryReader mapr = new BinaryReader(all_maps))
                 {
@@ -357,25 +431,17 @@ namespace The_Walrus_Is_Back_to_Pack
                                         scenario _chain = new scenario();
 
                                         _chain.data_offset = (ulong)(position++ * 2048);
-                                        //_chain.msfmode = mapr.ReadBytes(4);
+                                        long offset = mapr.ReadUInt32() * 2048;
 
-                                        //switch (_chain.msfmode[3])
-                                        //{
-                                          //  case 1:
-                                                long offset = mapr.ReadUInt32() * 2048;
+                                        _chain.partition = (uint)(offset / buffer_length);
+                                        _chain.partititon_offset = (uint)(offset % buffer_length);
 
-                                                _chain.partition = (uint)(offset / buffer_length);
-                                                _chain.partititon_offset = (uint)(offset % buffer_length);
-                                            //    break;
-                                        //}
                                         chain.Add(_chain);
                                     }
                                     break;
                                 case "raw":
                                     while (mapr.BaseStream.Position != map_offset + map_length)
                                     {
-                                        
-
                                         scenario _chain = new scenario();
 
                                         if (_chain.partition == 1)
@@ -395,6 +461,7 @@ namespace The_Walrus_Is_Back_to_Pack
                                             //    break;
                                             case 2:
                                                 _chain.header = mapr.ReadBytes(8);
+                                                _chain.form = ((_chain.header[2] & 0x20) == 0x20) ? 2 : 1;
                                                 //long offset = mapr.ReadUInt32() * 2048;
                                                 //
                                                 //_chain.partition = (uint)(offset / buffer_length);
@@ -421,57 +488,59 @@ namespace The_Walrus_Is_Back_to_Pack
                                     }
                                     break;
                             }
-                            scenario[] chain_sorted = chain.OrderBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
-                            int current_partition = 0;
-                            for (int i = 0; i < chain_sorted.Length; i++)
+                            scenario[] chain_form1_sorted = chain.Where(x => x.form == 0 || x.form==1).OrderBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
+                            scenario[] chain_form2_sorted = chain.Where(x => x.form == 2).OrderBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
+                            //scenario[] chain_sorted = chain.OrderBy(x => x.form).ThenBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
+                            int current_partition = -1;
+                            for (int i = 0; i < chain_form1_sorted.Length; i++)
                             {
-                                if(i == 32984)
-                                {
-                                    int y = 0;
-                                    var f = chain_sorted[i];
-                                }
+                                //if(i == 32984)
+                                //{
+                                //    int y = 0;
+                                //    var f = chain_sorted[i];
+                                //}
 
-                                if (current_partition != chain_sorted[i].partition || data_buffer.Length == 0)
+                                if (current_partition != chain_form1_sorted[i].partition) // || data_buffer.Length == 0)
                                 {
                                     data_buffer.SetLength(0);
-                                    SevenZip.UnpackBuffer(mrg_arc, ref data_buffer, partitions[(int)chain_sorted[i].partition]);
-                                    current_partition = (int)chain_sorted[i].partition;
+                                    SevenZip.UnpackBuffer(mrg_arc, data_buffer, partitions[(int)chain_form1_sorted[i].partition]);
+                                    current_partition = (int)chain_form1_sorted[i].partition;
                                 }
 
-                                data_buffer.Seek(chain_sorted[i].partititon_offset, SeekOrigin.Begin);
+                                data_buffer.Seek(chain_form1_sorted[i].partititon_offset, SeekOrigin.Begin);
 
                                 switch (mode)
                                 {
                                     case "iso":
                                         byte[] iso_out_buffer = new byte[2048];
                                         data_buffer.Read(iso_out_buffer, 0, 2048);
-                                        dataout.BaseStream.Seek((long)chain_sorted[i].data_offset, SeekOrigin.Begin);
+                                        dataout.BaseStream.Seek((long)chain_form1_sorted[i].data_offset, SeekOrigin.Begin);
                                         dataout.Write(iso_out_buffer);
                                         break;
                                     case "raw":
                                         byte[] raw_out_buffer = new byte[2352];
 
-                                        switch (chain_sorted[i].msfmode[3])
+                                        switch (chain_form1_sorted[i].msfmode[3])
                                         {
                                             case 1:
                                                 new byte[] { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }.CopyTo(raw_out_buffer, 1);
-                                                chain_sorted[i].msfmode.CopyTo(raw_out_buffer, 12);
+                                                chain_form1_sorted[i].msfmode.CopyTo(raw_out_buffer, 12);
                                                 data_buffer.Read(raw_out_buffer, 16, 2048);
                                                 CalculateEDC(ref raw_out_buffer, 0, 2064);
                                                 CalculateECCP(ref raw_out_buffer);
                                                 CalculateECCQ(ref raw_out_buffer);
-                                                dataout.BaseStream.Seek((long)chain_sorted[i].data_offset, SeekOrigin.Begin);
+                                                dataout.BaseStream.Seek((long)chain_form1_sorted[i].data_offset, SeekOrigin.Begin);
                                                 dataout.Write(raw_out_buffer);
                                                 break;
                                             case 2:
-                                                chain_sorted[i].header.CopyTo(raw_out_buffer, 16);
+                                                chain_form1_sorted[i].header.CopyTo(raw_out_buffer, 16);
                                                 data_buffer.Read(raw_out_buffer, 24, 2048);
                                                 CalculateEDC(ref raw_out_buffer, 16, 2056);
                                                 CalculateECCP(ref raw_out_buffer);
                                                 CalculateECCQ(ref raw_out_buffer);
                                                 new byte[] { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }.CopyTo(raw_out_buffer, 1);
-                                                chain_sorted[i].msfmode.CopyTo(raw_out_buffer, 12);
-                                                dataout.BaseStream.Seek((long)chain_sorted[i].data_offset, SeekOrigin.Begin);
+                                                chain_form1_sorted[i].msfmode.CopyTo(raw_out_buffer, 12);
+                                                dataout.BaseStream.Seek((long)chain_form1_sorted[i].data_offset, SeekOrigin.Begin);
                                                 dataout.Write(raw_out_buffer);
                                                 break;
                                         }
@@ -479,7 +548,12 @@ namespace The_Walrus_Is_Back_to_Pack
                                 }
                             }
 
-                            Console.WriteLine(string.Format("{0}", DateTime.Now - start_time));
+                            for (int i = 0; i < chain_form2_sorted.Length; i++)
+                            {
+
+                            }
+
+                                Console.WriteLine(string.Format("{0}", DateTime.Now - start_time));
                         }
                     }
                 }
@@ -582,7 +656,7 @@ namespace The_Walrus_Is_Back_to_Pack
             XmlNode map_xml = xml.DocumentElement.SelectSingleNode("partitions/partition[@type='map']");
 
             MemoryStream all_maps = new MemoryStream();
-            SevenZip.UnpackBuffer(mrg_arc, ref all_maps, map_xml);
+            SevenZip.UnpackBuffer(mrg_arc, all_maps, map_xml);
 
             return all_maps;
         }
@@ -628,6 +702,13 @@ namespace The_Walrus_Is_Back_to_Pack
         }
     }
 
+    internal class Form2Info
+    {
+        internal long chunk_length;
+        internal long offset;
+        internal long length;
+        internal long c_length;
+    }
 
     internal class scenario
     {
@@ -636,5 +717,6 @@ namespace The_Walrus_Is_Back_to_Pack
         public ulong data_offset;
         internal byte[] msfmode;
         internal byte[] header;
+        internal int form;
     }
 }
