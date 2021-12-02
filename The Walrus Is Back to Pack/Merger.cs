@@ -93,10 +93,10 @@ namespace The_Walrus_Is_Back_to_Pack
 
                     while (br.BaseStream.Position != br.BaseStream.Length)
                     {
-                        if(br.BaseStream.Position == 28224)
-                        {
-                            int h = 0;
-                        }
+                        //if(br.BaseStream.Position == 28224)
+                        //{
+                        //    int h = 0;
+                        //}
 
                         byte[] _temp = br.ReadBytes(block_size);
                         if (_temp.Length < 2048)
@@ -133,6 +133,29 @@ namespace The_Walrus_Is_Back_to_Pack
                                 break;
                         }
 
+                        //psx specific keys
+                        if (block_size == 2352)
+                        {
+                            if (_temp[15] == 2)
+                            {
+                                if ((_temp[18] & 0x20) == 0x20)
+                                {
+                                    bool psx_null_edc = PsxNullSequenceCheck(ref _temp, 2348, 4);
+                                    if (psx_null_edc)
+                                    {
+                                        _temp[15] |= 0x80;
+                                    }
+                                }
+                                if (PsxNullSequenceCheck(ref _temp, 16, 8))
+                                {
+                                    if (!PsxNullSequenceCheck(ref _temp, 2076, 276))
+                                    {
+                                        _temp[15] |= 0x40;
+                                    }
+                                }
+                            }
+                        }
+
                         if (dupes.ContainsKey(hash))
                         {
                             switch(block_size)
@@ -141,7 +164,7 @@ namespace The_Walrus_Is_Back_to_Pack
                                     image_map.Write(dupes[hash]);
                                     break;
                                 case 2352:
-                                    switch (_temp[15])
+                                    switch (_temp[15] & 0b11)
                                     {
                                         case 1:
                                             image_map.Write(_temp, 12, 4);
@@ -166,7 +189,7 @@ namespace The_Walrus_Is_Back_to_Pack
                                     dupes.Add(hash, counter++);
                                     break;
                                 case 2352:
-                                    switch (_temp[15])
+                                    switch (_temp[15] & 0b11)
                                     {
                                         case 1:
                                             mr.Write(_temp, 16, 2048);
@@ -338,6 +361,15 @@ namespace The_Walrus_Is_Back_to_Pack
             if (merge_options.verbose) Console.WriteLine(string.Format("Job completed in {0}", DateTime.Now - job_time));
         }
 
+        private static bool PsxNullSequenceCheck(ref byte[] temp, int offset, int length)
+        {
+            for (int i = 0; i < length; i++)
+            {
+                if (temp[i + offset] != 0) return false;
+            }
+            return true;
+        }
+
         internal static void UnPack(string mrg_arc, Options merge_options)
         {
             using (BinaryReader br = new BinaryReader(new FileStream(mrg_arc, FileMode.Open)))
@@ -408,7 +440,8 @@ namespace The_Walrus_Is_Back_to_Pack
                         string file_name = file.Attributes["name"].Value;
                         using (BinaryWriter dataout = new BinaryWriter(new FileStream(file_name, FileMode.Create)))
                         {
-                            int buffer_length = 67108864;
+                            int buffer_length_form1 = 67108864;
+                            int buffer_length_form2 = 76152832;
 
                             MemoryStream data_buffer = new MemoryStream();
 
@@ -433,8 +466,8 @@ namespace The_Walrus_Is_Back_to_Pack
                                         _chain.data_offset = (ulong)(position++ * 2048);
                                         long offset = mapr.ReadUInt32() * 2048;
 
-                                        _chain.partition = (uint)(offset / buffer_length);
-                                        _chain.partititon_offset = (uint)(offset % buffer_length);
+                                        _chain.partition = (uint)(offset / buffer_length_form1);
+                                        _chain.partititon_offset = (uint)(offset % buffer_length_form1);
 
                                         chain.Add(_chain);
                                     }
@@ -451,7 +484,8 @@ namespace The_Walrus_Is_Back_to_Pack
                                         _chain.data_offset = (ulong)(position++ * 2352);
                                         _chain.msfmode = mapr.ReadBytes(4);
 
-                                        switch (_chain.msfmode[3])
+                                        //test mark psx null edc
+                                        switch (_chain.msfmode[3] & 0b11)
                                         {
                                             //case 1:
                                             //    long offset = mapr.ReadUInt32() * 2048;
@@ -469,26 +503,39 @@ namespace The_Walrus_Is_Back_to_Pack
                                                 break;
                                         }
 
-                                        long offset = mapr.ReadUInt32() * 2048;
+                                        long offset = mapr.ReadUInt32();// * 2048;
 
-                                        if(offset >= 1024*1024*64)
+                                        //if (offset >= 1024 * 1024 * 64)
+                                        //{
+                                        //    int j = 0;
+                                        //}
+
+                                        switch(_chain.form)
                                         {
-                                            int j = 0;
+                                            case 0:
+                                            case 1:
+                                                offset = offset * 2048;
+                                                _chain.partition = (uint)(offset / buffer_length_form1);
+                                                _chain.partititon_offset = (uint)(offset % buffer_length_form1);
+                                                break;
+                                            case 2:
+                                                offset = offset * 2324;
+                                                _chain.partition = (uint)(offset / buffer_length_form2);
+                                                _chain.partititon_offset = (uint)(offset % buffer_length_form2);
+                                                break;
                                         }
+                                        
 
-                                        _chain.partition = (uint)(offset / buffer_length);
-                                        _chain.partititon_offset = (uint)(offset % buffer_length);
-
-                                        if (_chain.partition == 2)
-                                        {
-                                            int h = 0;
-                                        }
+                                        //if (_chain.partition == 2)
+                                        //{
+                                        //    int h = 0;
+                                        //}
 
                                         chain.Add(_chain);
                                     }
                                     break;
                             }
-                            scenario[] chain_form1_sorted = chain.Where(x => x.form == 0 || x.form==1).OrderBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
+                            scenario[] chain_form1_sorted = chain.Where(x => x.form == 0 || x.form == 1).OrderBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
                             scenario[] chain_form2_sorted = chain.Where(x => x.form == 2).OrderBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
                             //scenario[] chain_sorted = chain.OrderBy(x => x.form).ThenBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
                             int current_partition = -1;
@@ -520,7 +567,7 @@ namespace The_Walrus_Is_Back_to_Pack
                                     case "raw":
                                         byte[] raw_out_buffer = new byte[2352];
 
-                                        switch (chain_form1_sorted[i].msfmode[3])
+                                        switch (chain_form1_sorted[i].msfmode[3] & 0b11)
                                         {
                                             case 1:
                                                 new byte[] { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }.CopyTo(raw_out_buffer, 1);
@@ -533,13 +580,27 @@ namespace The_Walrus_Is_Back_to_Pack
                                                 dataout.Write(raw_out_buffer);
                                                 break;
                                             case 2:
-                                                chain_form1_sorted[i].header.CopyTo(raw_out_buffer, 16);
-                                                data_buffer.Read(raw_out_buffer, 24, 2048);
-                                                CalculateEDC(ref raw_out_buffer, 16, 2056);
-                                                CalculateECCP(ref raw_out_buffer);
-                                                CalculateECCQ(ref raw_out_buffer);
-                                                new byte[] { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }.CopyTo(raw_out_buffer, 1);
-                                                chain_form1_sorted[i].msfmode.CopyTo(raw_out_buffer, 12);
+                                                if ((chain_form1_sorted[i].msfmode[3] & 0x40) == 0x40)
+                                                {
+                                                    chain_form1_sorted[i].msfmode.CopyTo(raw_out_buffer, 12);
+                                                    raw_out_buffer[15] &= 3;
+                                                    chain_form1_sorted[i].header.CopyTo(raw_out_buffer, 16);
+                                                    data_buffer.Read(raw_out_buffer, 24, 2048);
+                                                    CalculateEDC(ref raw_out_buffer, 16, 2056);
+                                                    CalculateECCP(ref raw_out_buffer);
+                                                    CalculateECCQ(ref raw_out_buffer);
+                                                    new byte[] { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }.CopyTo(raw_out_buffer, 1);
+                                                }
+                                                else
+                                                {
+                                                    chain_form1_sorted[i].header.CopyTo(raw_out_buffer, 16);
+                                                    data_buffer.Read(raw_out_buffer, 24, 2048);
+                                                    CalculateEDC(ref raw_out_buffer, 16, 2056);
+                                                    CalculateECCP(ref raw_out_buffer);
+                                                    CalculateECCQ(ref raw_out_buffer);
+                                                    new byte[] { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }.CopyTo(raw_out_buffer, 1);
+                                                    chain_form1_sorted[i].msfmode.CopyTo(raw_out_buffer, 12);
+                                                }
                                                 dataout.BaseStream.Seek((long)chain_form1_sorted[i].data_offset, SeekOrigin.Begin);
                                                 dataout.Write(raw_out_buffer);
                                                 break;
@@ -547,13 +608,37 @@ namespace The_Walrus_Is_Back_to_Pack
                                         break;
                                 }
                             }
-
+                            int current_partition_form2 = -1;
                             for (int i = 0; i < chain_form2_sorted.Length; i++)
                             {
+                                if (current_partition_form2 != chain_form2_sorted[i].partition) // || data_buffer.Length == 0)
+                                {
+                                    data_buffer.SetLength(0);
+                                    SevenZip.UnpackBuffer(mrg_arc, data_buffer, partitions_form2[(int)chain_form2_sorted[i].partition]);
+                                    current_partition_form2 = (int)chain_form2_sorted[i].partition;
+                                }
 
+                                data_buffer.Seek(chain_form2_sorted[i].partititon_offset, SeekOrigin.Begin);
+
+                                byte[] raw_out_buffer = new byte[2352];
+
+                                new byte[] { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff }.CopyTo(raw_out_buffer, 1);
+                                chain_form2_sorted[i].msfmode.CopyTo(raw_out_buffer, 12);
+                                chain_form2_sorted[i].header.CopyTo(raw_out_buffer, 16);
+                                data_buffer.Read(raw_out_buffer, 24, 2324);
+                                if ((raw_out_buffer[15] & 0x80) != 0x80)
+                                {
+                                    CalculateEDC(ref raw_out_buffer, 16, 2332);
+                                }
+                                else
+                                {
+                                    raw_out_buffer[15] ^= 0x80;
+                                }
+                                dataout.BaseStream.Seek((long)chain_form2_sorted[i].data_offset, SeekOrigin.Begin);
+                                dataout.Write(raw_out_buffer);
                             }
 
-                                Console.WriteLine(string.Format("{0}", DateTime.Now - start_time));
+                            Console.WriteLine(string.Format("{0}", DateTime.Now - start_time));
                         }
                     }
                 }
