@@ -296,7 +296,7 @@ namespace The_Walrus_Is_Back_to_Pack
                 image_xml.SetAttribute("type", "file");
                 //image_type
                 image_xml.SetAttribute("mode", image_type);
-                image_xml.SetAttribute("name", Path.GetFileName(images[image]));
+                image_xml.SetAttribute("name", new FileInfo(images[image]).Name);
                 image_xml.SetAttribute("map_offset", all_maps.Position.ToString());
                 image_xml.SetAttribute("map_length", image_map.BaseStream.Length.ToString());
 
@@ -355,8 +355,8 @@ namespace The_Walrus_Is_Back_to_Pack
             tr.Write(md5_xml);
             tr.Close();
 
-            merge_options.xml = true;
-            if (merge_options.xml) main_spec.Save(string.Format("{0}.xml", Path.GetFileName(working_dir)));
+            //merge_options.xml = true;
+            if (merge_options.xml) main_spec.Save(string.Format("{0}.xml", new DirectoryInfo(working_dir).Name));
 
             if (merge_options.verbose) Console.WriteLine(string.Format("Job completed in {0}", DateTime.Now - job_time));
         }
