@@ -53,7 +53,9 @@ namespace The_Walrus_Is_Back_to_Pack
                 seven_zip.StartInfo.UseShellExecute = false;
                 seven_zip.StartInfo.CreateNoWindow = true;
 
+                Console.InputEncoding = System.Text.Encoding.ASCII;
                 seven_zip.Start();
+                System.Text.Encoding g = seven_zip.StandardInput.Encoding;
 
                 Task input_task = Task.Run(() =>
                 {
@@ -87,6 +89,7 @@ namespace The_Walrus_Is_Back_to_Pack
                 seven_zip.StartInfo.RedirectStandardError = true;
                 seven_zip.StartInfo.CreateNoWindow = true;
                 seven_zip.StartInfo.UseShellExecute = false;
+                seven_zip.StartInfo.StandardOutputEncoding = System.Text.Encoding.ASCII;
                 //seven_zip.ErrorDataReceived += (sender, EventArgs) =>
                 //{
                 //    Console.WriteLine(EventArgs.Data);
