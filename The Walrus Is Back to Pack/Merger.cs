@@ -45,6 +45,11 @@ namespace The_Walrus_Is_Back_to_Pack
             BinaryWriter form2r = new BinaryWriter(new FileStream(form2_name, FileMode.Create));
             List<Form2Info> form2s = new List<Form2Info>();
 
+            string audio_name = new DirectoryInfo(working_dir).Name + ".audio";
+            MemoryStream audio_stream = new MemoryStream();
+            BinaryWriter audior = new BinaryWriter(new FileStream(audio_name, FileMode.Create));
+            List<AudioInfo> audios = new List<AudioInfo>();
+
             MemoryStream all_maps = new MemoryStream();
             XmlElement map_partition_xml = main_spec.CreateElement("partition");
 
@@ -52,6 +57,7 @@ namespace The_Walrus_Is_Back_to_Pack
 
             int buffer_form1_size = merge_options.volume * 1048576;
             int buffer_form2_size = merge_options.volume * 1189888;
+            int buffer_audio_size = 10584000;
 
             if (merge_options.verbose)
             {
@@ -60,6 +66,7 @@ namespace The_Walrus_Is_Back_to_Pack
 
             int counter = 0;
             int counter_form2 = 0;
+            int counter_audio = 0;
 
             int chunk_n = 0;
             DateTime job_time = DateTime.Now;
@@ -80,6 +87,7 @@ namespace The_Walrus_Is_Back_to_Pack
                     case "iso":
                         block_size = 2048;
                         break;
+                    case "audio":
                     case "raw":
                         block_size = 2352;
                         break;
@@ -93,11 +101,6 @@ namespace The_Walrus_Is_Back_to_Pack
 
                     while (br.BaseStream.Position != br.BaseStream.Length)
                     {
-                        //if(br.BaseStream.Position == 28224)
-                        //{
-                        //    int h = 0;
-                        //}
-
                         byte[] _temp = br.ReadBytes(block_size);
                         if (_temp.Length < 2048)
                         {
@@ -112,23 +115,30 @@ namespace The_Walrus_Is_Back_to_Pack
                                 hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 0, 2048));
                                 break;
                             case 2352:
-                                switch (_temp[15])
+                                if (CheckSync(_temp))
                                 {
-                                    case 1:
-                                        hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 16, 2048));
-                                        break;
-                                    case 2:
-                                        switch ((_temp[18] & 0x20) == 0x20)
-                                        {
-                                            case false:
-                                                hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 24, 2048));
-                                                break;
-                                            case true:
-                                                hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 24, 2324));
-                                                break;
-                                        }
+                                    switch (_temp[15])
+                                    {
+                                        case 1:
+                                            hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 16, 2048));
+                                            break;
+                                        case 2:
+                                            switch ((_temp[18] & 0x20) == 0x20)
+                                            {
+                                                case false:
+                                                    hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 24, 2048));
+                                                    break;
+                                                case true:
+                                                    hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 24, 2324));
+                                                    break;
+                                            }
 
-                                        break;
+                                            break;
+                                    }
+                                }
+                                else
+                                {
+                                    hash = BitConverter.ToString(MD5.Create().ComputeHash(_temp, 0, 2352));
                                 }
                                 break;
                         }
@@ -360,6 +370,17 @@ namespace The_Walrus_Is_Back_to_Pack
             if (merge_options.xml) main_spec.Save(string.Format("{0}.xml", new DirectoryInfo(working_dir).Name));
 
             if (merge_options.verbose) Console.WriteLine(string.Format("Job completed in {0}", DateTime.Now - job_time));
+        }
+
+
+        static byte[] sync = { 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00 };
+        private static bool CheckSync(byte[] temp)
+        {
+            for (int i = 0; i < sync.Length; i++)
+            {
+                if (temp[i] != sync[i]) return false;
+            }
+            return true;
         }
 
         private static bool PsxNullSequenceCheck(ref byte[] temp, int offset, int length)
@@ -795,6 +816,14 @@ namespace The_Walrus_Is_Back_to_Pack
                 return compressed_xml.ToArray();
             }
         }
+    }
+
+    internal class AudioInfo
+    {
+        internal long chunk_length;
+        internal long offset;
+        internal long length;
+        internal long c_length;
     }
 
     internal class Form2Info

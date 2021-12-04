@@ -48,6 +48,15 @@ namespace The_Walrus_Is_Back_to_Pack
                     {
                         return "raw";
                     }
+
+                    if (br.BaseStream.Length % 2352 == 0)
+                    {
+                        string file_info = new FileInfo(image).Extension;
+                        if (file_info == ".bin" || file_info == ".wav")
+                        {
+                            return "audio";
+                        }
+                    }
                 }
             }
             return "file";

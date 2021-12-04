@@ -20,6 +20,7 @@ namespace The_Walrus_Is_Back_to_Pack
                 seven_zip.StartInfo.UseShellExecute = false;
                 seven_zip.StartInfo.CreateNoWindow = true;
 
+                Console.InputEncoding = System.Text.Encoding.ASCII;
                 seven_zip.Start();
 
                 input_stream.Position = 0;
