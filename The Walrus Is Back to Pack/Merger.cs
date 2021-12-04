@@ -297,6 +297,7 @@ namespace The_Walrus_Is_Back_to_Pack
                 //image_type
                 image_xml.SetAttribute("mode", image_type);
                 image_xml.SetAttribute("name", new FileInfo(images[image]).Name);
+                image_xml.SetAttribute("length", new FileInfo(images[image]).Length.ToString());
                 image_xml.SetAttribute("map_offset", all_maps.Position.ToString());
                 image_xml.SetAttribute("map_length", image_map.BaseStream.Length.ToString());
 
@@ -458,6 +459,7 @@ namespace The_Walrus_Is_Back_to_Pack
                             long position = 0;
                             switch (mode)
                             {
+                                case "file":
                                 case "iso":
                                     while (mapr.BaseStream.Position != map_offset + map_length)
                                     {
@@ -539,6 +541,7 @@ namespace The_Walrus_Is_Back_to_Pack
                             scenario[] chain_form2_sorted = chain.Where(x => x.form == 2).OrderBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
                             //scenario[] chain_sorted = chain.OrderBy(x => x.form).ThenBy(x => x.partition).ThenBy(y => y.data_offset).ToArray();
                             int current_partition = -1;
+                            long file_length = Convert.ToInt64(file.Attributes["length"].Value);
                             for (int i = 0; i < chain_form1_sorted.Length; i++)
                             {
                                 //if(i == 32984)
@@ -558,6 +561,13 @@ namespace The_Walrus_Is_Back_to_Pack
 
                                 switch (mode)
                                 {
+                                    case "file":
+                                        byte[] file_out_buffer = (file_length <= 2048) ? new byte[file_length] : new byte[2048];
+                                        file_length -= 2048;
+                                        data_buffer.Read(file_out_buffer, 0, file_out_buffer.Length);
+                                        dataout.BaseStream.Seek((long)chain_form1_sorted[i].data_offset, SeekOrigin.Begin);
+                                        dataout.Write(file_out_buffer);
+                                        break;
                                     case "iso":
                                         byte[] iso_out_buffer = new byte[2048];
                                         data_buffer.Read(iso_out_buffer, 0, 2048);
